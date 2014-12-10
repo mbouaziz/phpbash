@@ -1,0 +1,344 @@
+<html>
+ <head>
+  <title>PHP Bash</title>
+  <script src="http://code.jquery.com/jquery-1.10.2.min.js"></script>
+  <script>
+var output, state;
+
+var hist = new (function() {
+
+  var cmds = [['', '']]; // 0: original, 1: edit
+  var current = 0;
+
+  this.add = function (newCmd) {
+    cmds[current][1] = cmds[current][0];
+    if (newCmd != '')
+    {
+      var lastIndex = cmds.length - 1;
+      if (lastIndex <= 0 || newCmd != cmds[lastIndex - 1][1])
+      {
+        cmds[lastIndex] = [newCmd, newCmd];
+        cmds.push(['', '']);
+      }
+      current = cmds.length - 1;
+    }
+    return this;
+  };
+
+  var go = function (delta) {
+    var newIndex = current + delta;
+    if (newIndex < 0)
+      newIndex = 0;
+    else if (newIndex >= cmds.length)
+      newIndex = cmds.length - 1;
+    if (newIndex != current)
+    {
+      cmds[current][1] = $('#command').val();
+      current = newIndex;
+      $('#command').val(cmds[newIndex][1]);
+    }
+    return this;
+  };
+
+  this.up = function () { return go(-1); };
+  this.down = function () { return go(+1); };
+
+})();
+
+var Output = function(selector) {
+     
+  var element = selector[0];
+
+  var scrollToBottom = function () {
+    selector.animate({ scrollTop: element.scrollHeight });
+    return this;
+  };
+
+  this.clear = function () { selector.empty(); return this; };
+
+  var conv = function (s) {
+    return $('#converter').text(s).html();
+  };
+
+  var append = function () {
+
+    selector.append.apply(selector, arguments);
+    return scrollToBottom();
+  };
+
+  this.appendCommand = function (formattedCommand, returnCode, lines) {
+
+    var formattedCwd = '<span class="workingDirectory">' + (state === undefined || state.cwd === undefined ? '' : state.cwd) + '</span>';
+    var formattedCode = '', formattedLines = '', lastNewLine = '';
+    if (returnCode !== undefined)
+      formattedCode = '<span class="returnCode returnCode' + returnCode + '">' + returnCode + '</span>';
+    if (lines !== undefined && lines !== null)
+      if ($.isArray(lines)) {
+        formattedLines = lines.join('\n');
+        if (lines[lines.length - 1] != '')
+          lastNewLine = '\n';
+      } else {
+        formattedLines = lines;
+        if (lines.length > 0 && lines[lines.length - 1] != '\n')
+          lastNewLine = '\n';
+      }
+    formattedLines = conv(formattedLines);
+
+    return append(formattedCwd,
+           formattedCommand,
+           formattedCode, '\n',
+           formattedLines, lastNewLine);
+  };
+
+  this.appendFailure = function (command, returnCode, lines) {
+    return this.appendCommand('<span class="inputCommand commandFailure">' + conv(command) + '</span>', returnCode, lines);
+  };
+
+  this.appendSuccess = function (command, returnCode, lines) {
+    return this.appendCommand('<span class="inputCommand commandSuccess">' + conv(command) + '</span>', returnCode, lines);
+  };
+};
+
+function showMsg(msg)
+{
+  $('#msg').html(msg).show().delay(4000).fadeOut(1000);
+}
+
+var specialCommands = new (function() {
+
+  this.trySpecialCommand = function (command) {
+
+    var m = command.match(/^(\S+)(.*)$/);
+    var cmd = m === null ? '' : m[1];
+    var f = this[cmd];
+    if (f === undefined)
+      return false;
+
+    if (m === null)
+      return f();
+    else
+      return f(m[2].trim());
+  };
+
+  this[''] = function () {
+    if (state === undefined)
+      return false;
+    output.appendCommand('');
+    return true;
+  };
+
+  this.clear = function () {
+    output.clear();
+    showMsg('Output cleared');
+    return true;
+  };
+
+  this.mode = function (arg) {
+    if (arg === undefined)
+      arg = '';
+    var m = modes[arg];
+    if (m === undefined)
+      m = modes[0];
+    if (modes.current === m)
+    {
+      output.appendCommand('mode ' + arg, undefined, 'Already in mode ' + m.name);
+    }
+    else
+    {
+      var first = modes.current === undefined;
+      if (!first && modes.current.end !== undefined)
+        modes.current.end();
+      modes.current = m;
+      if (m.begin !== undefined)
+        m.begin();
+      $('#mode').text(m.name);
+      if (first)
+        return true;
+      output.appendCommand('mode ' + arg, undefined, 'Switched to mode ' + m.name);
+    }
+    return true;
+  };
+
+  this.h = function (arg) {
+    var out = '?';
+    switch (arg)
+    {
+      case 'mode':
+        out = 'mode m  where m is one of the following:\n' +
+'exec   uses PHP exec command (default)\n' +
+'pcntl  uses PHP pcntl_exec command if available\n' +
+'bash   uses bash through proc_open (remembers variables)'; 
+        break;
+      default:
+        out = 'Executes bash commands. Built-in commands:\n' +
+'h [mode]                this help\n' +
+'mode [exec|pcntl|bash]  switch between modes\n' +
+'clear                   clears the console';
+    }
+    output.appendCommand('h ' + arg, undefined, out);
+  };
+
+}) ();
+
+var modes = [];
+modes.add = function (f) {
+  var m = new f();
+  if (m.parseData === undefined)
+    m.parseData = function (data) { return data; };
+  this.push(m);
+  this[m.name] = m;
+  return this;
+};
+
+modes.add(function () {
+
+  this.name = 'bash';
+  this.dataType = 'json';
+
+}).add(function () {
+
+  this.name = 'exec';
+  this.dataType = 'json';
+
+}).add(function () {
+
+  this.name = 'pcntl';
+  this.dataType = 'text';
+  this.parseData = function (data) {
+    return { code: undefined, output: data, state: undefined };
+  };
+
+});
+
+function sendCommand(command)
+{
+  var mode = modes.current;
+
+  if (command === undefined)
+  {
+     command = $('#command').val();
+
+     hist.add(command);
+     $('#command').val('');
+  }
+  command = command.trim();
+
+  if (specialCommands.trySpecialCommand(command))
+    return;
+
+  showMsg('Sending <tt>' + command + '</tt>');
+
+  var onFailure = function(jqXHR, textStatus, err) {
+    var message = textStatus + ' ' + err.message;
+    if (textStatus == 'parsererror' && jqXHR.status == 200)
+      message = jqXHR.responseText;
+    showMsg('Command failed: ' + message);
+    output.appendFailure(command, undefined, message);
+  };
+  var onSuccess = function(data, textStatus, jqXHR) {
+    if (jqXHR.status == 210)
+      return onFailure(jqXHR, jqXHR.statusText, { message: jqXHR.responseText });
+    data = mode.parseData(data);
+    showMsg('Command succeeded: ' + textStatus);
+    state = data.state;
+    output.appendSuccess(command, data.code, data.output);
+  };
+
+  var request = {
+    mode: mode.name,
+    command: command,
+    state: state
+  };
+
+  if ($('#stdin:visible').length)
+    request.stdin = $('#stdin').val();
+
+  return $.post('phpbash-command.php5', request, onSuccess, mode.dataType)
+          .fail(onFailure);
+}
+
+$(function() {
+  output = new Output($('#output'));
+
+  $('#command').keypress(function(event) {
+    if (event.which == 13) // Enter
+      sendCommand();
+  })
+  .keydown(function(event) {
+    if (event.which == 38) // Up
+      hist.up();
+    else if (event.which == 40) // Down
+      hist.down();
+  });
+  $('#stdin').hide();
+  $('#toggleStdin').click(function() {
+    $('#stdin').slideToggle();
+  });
+
+  specialCommands['mode'](); // setup the default mode
+  sendCommand(''); // show a shell 'prompt'
+  $('#command').focus();
+});
+  </script>
+  <style>
+#command {
+  font-family: monospace;
+  width: 100%;
+}
+#stdin {
+  font-family: monospace;
+  width: 100%;
+  height: 5em;
+}
+#output {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: auto;
+  font-family: monospace;
+  white-space: pre;
+  margin: 0;
+  background-color: black;
+  color: white;
+}
+.inputCommand {
+  font-weight: bold;
+}
+.commandFailure {
+  color: yellow;
+}
+.workingDirectory:after {
+  content: '\003E\00a0';
+}
+.returnCode {
+  color: orange;
+}
+.returnCode0 {
+  color: green;
+}
+.returnCode:before {
+  content: '\00a0';
+}
+  </style>
+ </head>
+ <body>
+  <div id="converter" style="display:none"></div>
+  <table height="100%" width="100%">
+   <tbody>
+    <tr><td colspan="2">
+     <div id="output"></div>
+    </td></tr>
+   </tbody>
+   <tfoot>
+    <tr><td>
+     <input type="text" id="command" accesskey="c" title="Prompt. Type h for help" />
+     <textarea id="stdin" accesskey="s"></textarea>
+     <div><span id="msg">For help, type <tt>h</tt></span>&nbsp;<div>
+    </td><td width="1">
+     <input type="button" id="toggleStdin" accesskey="i" title="Toggle stdin usage (M-i)" value="stdin" />
+     <div id="mode" title="Mode. Type h mode for help">&nbsp;</div>
+    </td></tr>
+   </tfoot>
+  </table>
+ </body>
+</html>

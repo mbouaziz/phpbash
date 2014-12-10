@@ -1,0 +1,7 @@
+Mode: interactive, nohup
+try proc_open with /dev/tty or pty
+copy output
+fold command output
+show env
+separate stdout/stderr
+waiting symbol + elapsed time (when > 2s)

@@ -91,7 +91,8 @@ function exec_command($config, $command, $stdin, $state)
     fclose($pipes[6]);
     fwrite($pipes[0], 'echo $? 1>&3'."\n");
     fwrite($pipes[0], 'env 1>&4'."\n");
-    fwrite($pipes[0], 'set -o posix; set 1>&5'."\n"); // get only variables, not functions (todo)
+    // $IFS causes problems because of \n
+    fwrite($pipes[0], 'unset IFS; set -o posix; set 1>&5'."\n"); // get only variables, not functions (todo)
     fclose($pipes[0]);
 
     $output = stream_get_contents($pipes[1]);
@@ -106,7 +107,7 @@ function exec_command($config, $command, $stdin, $state)
     proc_close($bash);
 
     $env_ignores = array('_' => 1, 'SHLVL' => 1);
-    $localenv_ignores = $env_ignores + array('BASHOPTS' => 1, 'BASH_VERSINFO' => 1, 'EUID' => 1, 'PPID' => 1, 'SHELLOPTS' => 1, 'UID' => 1);
+    $localenv_ignores = $env_ignores + array('BASHOPTS' => 1, 'BASH_VERSINFO' => 1, 'BASH_VERSION' => 1, 'EUID' => 1, 'PPID' => 1, 'SHELLOPTS' => 1, 'UID' => 1);
 
     $env = env_to_array($env, $env_ignores);
     $localenv = env_to_array($localenv, $localenv_ignores);

@@ -6,6 +6,17 @@ function my_die($status, $msg = '')
   die($msg);
 }
 
+function my_log($logconfig, $towrite)
+{
+  $logfile = $logconfig['file'];
+  $maxsize = $logconfig['maxsize'];
+  if ($logfile && $maxsize != 0) {
+    if ($maxsize > 0 && filesize($logfile) > $maxsize)
+      unlink($logfile);
+    file_put_contents($logfile, $towrite, FILE_APPEND);
+  }
+}
+
 function env_to_array($env, $ignores)
 {
   $ex = explode("\n", $env);
@@ -30,14 +41,18 @@ function env_of_array($a, $prefix = '')
   return $cmd;
 }
 
-function exec_command($mode, $command, $stdin, $state)
+function exec_command($config, $command, $stdin, $state)
 {
+  $mode = $config['mode'];
+  $log = $config['log'];
+  $default_cwd = $config['default_cwd'];
+
   $command = trim($command);
 
   if (isset($state['cwd']) && $state['cwd'])
     chdir($state['cwd']);
   else
-    chdir('..');
+    chdir($default_cwd);
 
   if ($mode == 'bash')
   {
@@ -53,11 +68,24 @@ function exec_command($mode, $command, $stdin, $state)
 
     is_resource($bash) || my_die('proc_open failed');
 
-    if (isset($state['env']))
-      fwrite($pipes[0], env_of_array($state['env'], 'export ')); // restore the environment
-    if (isset($state['localenv']))
-      fwrite($pipes[0], env_of_array($state['localenv'])); // restore the local environment
-    fwrite($pipes[0], $command.' 0<&6'."\n"); // redirects stdin (if the command already have one, it should be run between ()
+    my_log($log, '# '.date('c')."\n");
+
+    if (isset($state['env'])) {
+      // restore the environment
+      $towrite = env_of_array($state['env'], 'export ');
+      my_log($log, $towrite);
+      fwrite($pipes[0], $towrite);
+    }
+    if (isset($state['localenv'])) {
+      // restore the local environment
+      $towrite = env_of_array($state['localenv']);
+      my_log($log, $towrite);
+      fwrite($pipes[0], $towrite);
+    }
+    // redirects stdin (if the command already have one, it should be run between () )
+    $towrite = $command.' 0<&6'."\n";
+    fwrite($pipes[0], $towrite);
+    my_log($log, $towrite);
     if ($stdin)
       fwrite($pipes[6], $stdin);
     fclose($pipes[6]);

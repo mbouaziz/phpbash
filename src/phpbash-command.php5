@@ -19,6 +19,12 @@ $mode = $_REQUEST['mode'];
 
 $stdin = isset($_REQUEST['stdin']) ? $_REQUEST['stdin'] : null;
 
-exec_command($mode, $command, $stdin, $state);
+$config = array(
+   'mode' => $mode,
+   'default_cwd' => '..',
+   'log' => array('file' => realpath('.').'/phpbash.log', 'maxsize' => 50000)
+);
+
+exec_command($config, $command, $stdin, $state);
 
 ?>

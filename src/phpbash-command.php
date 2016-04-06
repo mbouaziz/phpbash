@@ -1,6 +1,6 @@
 <?
 
-require_once 'phpbash-lib.php5';
+require_once 'phpbash-lib.php';
 
 if (get_magic_quotes_gpc())
 {

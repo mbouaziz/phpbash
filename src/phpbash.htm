@@ -253,7 +253,7 @@ function sendCommand(command)
   if ($('#stdin:visible').length)
     request.stdin = $('#stdin').val();
 
-  return $.post('phpbash-command.php5', request, onSuccess, mode.dataType)
+  return $.post('phpbash-command.php', request, onSuccess, mode.dataType)
           .fail(onFailure);
 }
 
